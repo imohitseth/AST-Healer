@@ -1,0 +1,17 @@
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# Secrets & API Keys
+.env
+
+# Python Compiler Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Testing Cache
+.pytest_cache/
+.coverage
