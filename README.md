@@ -10,6 +10,7 @@ AST-Healer is an autonomous, self-healing developer tool and web service built u
 ---
 
 ## 📽️ Demo & Screenshots
+<img width="382" height="100" alt="image" src="https://github.com/user-attachments/assets/2c70fd50-8cf2-4853-8642-581730b73df4" />
 
 > [!NOTE]
 > *Demo videos, UI dashboards, and full API execution screencasts are located under assets.*
