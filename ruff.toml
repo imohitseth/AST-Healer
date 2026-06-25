@@ -1,37 +1,31 @@
 # Ruff configuration for AST-Healer
-# https://docs.astral.sh/ruff/configuration/
-
 target-version = "py311"
 line-length = 100
 
 [lint]
-# Enforce: pycodestyle errors (E), pyflakes (F), warnings (W)
 select = ["E", "F", "W"]
 
 ignore = [
-    # Line too long — handled by formatter, not linter
-    "E501",
-    # Do not use bare `except` — acceptable in subprocess error-handling paths
-    "E722",
-    # Module level import not at top — triggered by conditional imports in main.py
-    "E402",
-    # Ambiguous variable name (e.g. `l`, `O`) — not relevant here
-    "E741",
-    # Local variable is assigned but never used — triggers on intentional _ patterns
-    "F841",
+    "E501",  # line too long — formatter concern, not linter
+    "E722",  # bare except — used intentionally in subprocess error paths
+    "E402",  # module-level import not at top — used in conftest.py intentionally
+    "E741",  # ambiguous variable name
+    "F841",  # local variable assigned but never used
 ]
 
-# Exclude auto-generated or vendored files
 exclude = [
     ".git",
     ".venv",
     "__pycache__",
     "*.egg-info",
+    "tests/mocks",   # CI stub — not production code, skip entirely
 ]
 
 [lint.per-file-ignores]
-# Test files: allow unused imports (pytest fixtures, mock targets)
-"tests/*" = ["F401", "F811"]
-# mock_code.py contains intentional bugs — ignore all lint there
+# conftest imports pytest after sys.path manipulation — E402 is intentional
+"conftest.py" = ["E402", "F401"]
+# Test support files: allow unused imports and redefinitions
+"tests/*.py" = ["F401", "F811"]
+# These files contain intentional runtime bugs — skip all lint
 "tests/mock_code.py" = ["E", "F", "W"]
 "tests/mock_run.py"  = ["E", "F", "W"]
