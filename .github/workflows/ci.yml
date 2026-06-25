@@ -7,9 +7,31 @@ on:
     branches: ["main"]
 
 jobs:
-  lint-and-test:
-    name: Lint & Test (Python ${{ matrix.python-version }})
+  lint:
+    name: Lint (Python 3.11)
     runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Run ruff
+        run: ruff check . --config ruff.toml
+
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    # Tests run independently — lint failures don't block test results
+    needs: []
 
     strategy:
       fail-fast: false
@@ -30,24 +52,19 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ruff
-
-      - name: Lint with ruff
-        run: |
-          ruff check . --select E,W,F --ignore E501
 
       - name: Run tests
         env:
-          # CI runs without a real API key; tests that hit the LLM are skipped
+          # Tests that call the Gemini API are skipped when this is absent
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PYTHONPATH: ${{ github.workspace }}
         run: |
-          pytest tests/ -v --tb=short
+          pytest tests/ -v --tb=short --ignore=tests/mock_code.py --ignore=tests/mock_run.py
 
   docker-build:
     name: Docker build check
     runs-on: ubuntu-latest
-    needs: lint-and-test
+    needs: [test]
 
     steps:
       - name: Checkout repository
