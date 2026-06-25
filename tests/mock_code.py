@@ -7,7 +7,7 @@ def multiply_numbers(a: int, b: int) -> int:
 
 def get_first_element(lst: list) -> any:
 
-    return lst[1]
+    return lst[0]
 
 def divide_numbers(a: int, b: int) -> float:
     if b == 0:
