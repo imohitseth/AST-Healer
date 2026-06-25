@@ -1,0 +1,8 @@
+# CI-safe requirements — excludes google-antigravity which is not on PyPI.
+# The Gemini agent is mocked via tests/mocks/google/ stub package.
+pydantic>=2.0
+pytest>=7.0
+fastapi>=0.100.0
+uvicorn>=0.22.0
+python-dotenv>=1.0.0
+httpx>=0.24.0
