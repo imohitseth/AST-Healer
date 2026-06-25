@@ -10,13 +10,11 @@ from schemas import IssuePayload
 from parser import extract_function_source, replace_function_source
 from google.antigravity import Agent, LocalAgentConfig
 
-# Load environment variables from .env
 load_dotenv()
 
 def clean_agent_code(response_text: str, function_name: str) -> str:
     """Cleans up markdown code blocks, conversational prefixes, and whitespaces from agent response."""
     code = response_text.strip()
-    # Remove markdown code blocks if the agent wrapped its response in it
     if code.startswith("```python"):
         code = code[len("```python"):].strip()
     elif code.startswith("```"):
@@ -24,13 +22,11 @@ def clean_agent_code(response_text: str, function_name: str) -> str:
     if code.endswith("```"):
         code = code[:-3].strip()
         
-    # Isolate code starting with 'def <function_name>' if prefixed by conversation
     def_prefix = f"def {function_name}"
     if def_prefix in code:
         idx = code.find(def_prefix)
         code = code[idx:]
         
-    # Final cleanup of any trailing backticks
     if code.endswith("```"):
         code = code[:-3].strip()
         
@@ -48,7 +44,6 @@ async def run_pytest_suite(test_file: str) -> tuple[int, str]:
 
     cmd = [python_exe, "-m", "pytest", test_file]
     
-    # Propagate environment variables and set PYTHONPATH to allow relative package imports
     env = os.environ.copy()
     env["PYTHONPATH"] = os.getcwd()
     
@@ -75,7 +70,6 @@ async def run_script_file(script_file: str) -> tuple[int, str]:
 
     cmd = [python_exe, script_file]
     
-    # Propagate environment variables and set PYTHONPATH to allow relative package imports
     env = os.environ.copy()
     env["PYTHONPATH"] = os.getcwd()
     
@@ -103,15 +97,12 @@ def parse_python_traceback(traceback_text: str) -> tuple[str, str, str]:
     file_path = None
     function_name = None
     
-    # Matches: File "tests/mock_code.py", line 4, in divide_numbers
     traceback_re = re.compile(r'^\s*File\s+"([^"]+)",\s+line\s+(\d+),\s+in\s+(\w+)')
     
-    # Iterate backwards to find the innermost frame causing the error
     for i in range(len(lines) - 2, -1, -1):
         match = traceback_re.match(lines[i])
         if match:
             func = match.group(3)
-            # Skip top-level module execution frame as it does not define a function
             if func == "<module>":
                 continue
             file_path = match.group(1).replace("\\", "/")
@@ -136,7 +127,6 @@ def parse_pytest_failure(pytest_output: str) -> tuple[str, str, str]:
     function_name = None
     error_log = []
     
-    # Matches: tests/mock_code.py:4: ZeroDivisionError
     file_line_err_re = re.compile(r"^([a-zA-Z0-9_\-\/\\\. ]+\.py):(\d+): (\w+)")
     
     for i in range(len(lines) - 1, -1, -1):
@@ -149,7 +139,6 @@ def parse_pytest_failure(pytest_output: str) -> tuple[str, str, str]:
                 
             file_path = possible_file
             
-            # Find the error details (lines starting with 'E   ')
             for j in range(i, -1, -1):
                 if lines[j].strip().startswith("E   "):
                     error_log.append(lines[j].strip()[4:])
@@ -157,7 +146,6 @@ def parse_pytest_failure(pytest_output: str) -> tuple[str, str, str]:
             if not error_log:
                 error_log.append(line)
                 
-            # Find the function definition in the traceback
             func_def_re = re.compile(r"^\s*def\s+(\w+)\s*\(")
             for j in range(i, -1, -1):
                 m = func_def_re.match(lines[j])
@@ -280,17 +268,14 @@ async def auto_heal_code(run_target: str, mode: str = "script", max_attempts: in
         print(f"  File Path:     {file_path}")
         print(f"  Function Name: {function_name}")
         print(f"  Error Message: {error_msg}")
-        
         payload = IssuePayload(
             file_path=file_path,
             function_name=function_name,
             error_log=error_msg
         )
-        
         print(f"Triggering repair for function '{function_name}'...")
         await heal_once(payload)
         
-        # Respect Gemini Free Tier rate limits (RPM) by pausing between calls
         print("Pausing for 8 seconds to stay under the API rate limit...")
         await asyncio.sleep(8)
         
