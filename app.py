@@ -61,7 +61,7 @@ async def heal(payload: IssuePayload):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Target file not found at path: {payload.file_path}"
         )
-        
+
     task_id = uuid.uuid4().hex
     tasks_db[task_id] = {
         "status": "PENDING",
@@ -91,19 +91,19 @@ async def heal_auto(mode: str = "script", file_path: str = None):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid mode. Must be 'script' or 'pytest'."
         )
-        
+
     if not file_path:
         if mode == "pytest":
             file_path = "tests/test_mock_code.py"
         else:
             file_path = "tests/mock_run.py"
-            
+
     if not os.path.exists(file_path):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Target file not found at path: {file_path}"
         )
-        
+
     task_id = uuid.uuid4().hex
     tasks_db[task_id] = {
         "status": "PENDING",

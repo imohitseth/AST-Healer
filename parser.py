@@ -3,14 +3,14 @@ import textwrap
 
 def extract_function_source(file_path: str, function_name: str) -> str:
     """
-    Parses the file at file_path into an AST, finds the FunctionDef node 
+    Parses the file at file_path into an AST, finds the FunctionDef node
     matching function_name, and returns its raw source code block.
     """
     with open(file_path, "r", encoding="utf-8") as f:
         source_code = f.read()
 
     tree = ast.parse(source_code)
-    
+
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == function_name:
             source_segment = ast.get_source_segment(source_code, node)
@@ -23,7 +23,7 @@ def extract_function_source(file_path: str, function_name: str) -> str:
 
 def adjust_indentation(code: str, target_indent_spaces: int) -> str:
     """
-    Dedents the input code first, then indents non-empty lines to match 
+    Dedents the input code first, then indents non-empty lines to match
     the target_indent_spaces level.
     """
     dedented = textwrap.dedent(code)
@@ -31,8 +31,8 @@ def adjust_indentation(code: str, target_indent_spaces: int) -> str:
 
 def replace_function_source(file_path: str, function_name: str, new_source_code: str) -> None:
     """
-    Locates the FunctionDef node in the source file, calculates its line range, 
-    replaces it with the new healed function code matching the original 
+    Locates the FunctionDef node in the source file, calculates its line range,
+    replaces it with the new healed function code matching the original
     indentation level, and writes the updated contents back to disk.
     """
     with open(file_path, "r", encoding="utf-8") as f:
@@ -40,7 +40,7 @@ def replace_function_source(file_path: str, function_name: str, new_source_code:
 
     tree = ast.parse(source_code)
     target_node = None
-    
+
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == function_name:
             target_node = node
@@ -58,7 +58,7 @@ def replace_function_source(file_path: str, function_name: str, new_source_code:
 
     # Split original code by lines to do line-range replacement
     lines = source_code.splitlines(keepends=True)
-    
+
     # ast line numbers are 1-indexed
     start_idx = target_node.lineno - 1
     end_idx = target_node.end_lineno

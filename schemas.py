@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 
 class IssuePayload(BaseModel):
     """Pydantic model representing the incoming bug report payload."""
-    
+
     model_config = {
         "extra": "forbid",
         "str_strip_whitespace": True,

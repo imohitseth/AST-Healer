@@ -4,7 +4,6 @@ import re
 import asyncio
 import argparse
 from dotenv import load_dotenv
-from pydantic import ValidationError
 
 from schemas import IssuePayload
 from parser import extract_function_source, replace_function_source
@@ -21,15 +20,15 @@ def clean_agent_code(response_text: str, function_name: str) -> str:
         code = code[3:].strip()
     if code.endswith("```"):
         code = code[:-3].strip()
-        
+
     def_prefix = f"def {function_name}"
     if def_prefix in code:
         idx = code.find(def_prefix)
         code = code[idx:]
-        
+
     if code.endswith("```"):
         code = code[:-3].strip()
-        
+
     return code
 
 async def run_pytest_suite(test_file: str) -> tuple[int, str]:
@@ -38,15 +37,15 @@ async def run_pytest_suite(test_file: str) -> tuple[int, str]:
         python_exe = os.path.join(".venv", "Scripts", "python.exe")
     else:
         python_exe = os.path.join(".venv", "bin", "python")
-        
+
     if not os.path.exists(python_exe):
         python_exe = sys.executable
 
     cmd = [python_exe, "-m", "pytest", test_file]
-    
+
     env = os.environ.copy()
     env["PYTHONPATH"] = os.getcwd()
-    
+
     process = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -64,15 +63,15 @@ async def run_script_file(script_file: str) -> tuple[int, str]:
         python_exe = os.path.join(".venv", "Scripts", "python.exe")
     else:
         python_exe = os.path.join(".venv", "bin", "python")
-        
+
     if not os.path.exists(python_exe):
         python_exe = sys.executable
 
     cmd = [python_exe, script_file]
-    
+
     env = os.environ.copy()
     env["PYTHONPATH"] = os.getcwd()
-    
+
     process = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -92,13 +91,13 @@ def parse_python_traceback(traceback_text: str) -> tuple[str, str, str]:
     lines = traceback_text.splitlines()
     if not lines:
         raise ValueError("Empty output, no traceback found.")
-        
+
     error_message = lines[-1].strip()
     file_path = None
     function_name = None
-    
+
     traceback_re = re.compile(r'^\s*File\s+"([^"]+)",\s+line\s+(\d+),\s+in\s+(\w+)')
-    
+
     for i in range(len(lines) - 2, -1, -1):
         match = traceback_re.match(lines[i])
         if match:
@@ -108,10 +107,10 @@ def parse_python_traceback(traceback_text: str) -> tuple[str, str, str]:
             file_path = match.group(1).replace("\\", "/")
             function_name = func
             break
-            
+
     if not file_path or not function_name:
         raise ValueError("Could not extract file path or function name from Python traceback.")
-        
+
     return file_path, function_name, error_message
 
 def parse_pytest_failure(pytest_output: str) -> tuple[str, str, str]:
@@ -122,13 +121,13 @@ def parse_pytest_failure(pytest_output: str) -> tuple[str, str, str]:
     lines = pytest_output.splitlines()
     if not lines:
         raise ValueError("Empty output, no pytest logs found.")
-        
+
     file_path = None
     function_name = None
     error_log = []
-    
+
     file_line_err_re = re.compile(r"^([a-zA-Z0-9_\-\/\\\. ]+\.py):(\d+): (\w+)")
-    
+
     for i in range(len(lines) - 1, -1, -1):
         line = lines[i].strip()
         match = file_line_err_re.match(line)
@@ -136,29 +135,29 @@ def parse_pytest_failure(pytest_output: str) -> tuple[str, str, str]:
             possible_file = match.group(1).replace("\\", "/")
             if "test_" in os.path.basename(possible_file):
                 continue
-                
+
             file_path = possible_file
-            
+
             for j in range(i, -1, -1):
                 if lines[j].strip().startswith("E   "):
                     error_log.append(lines[j].strip()[4:])
                     break
             if not error_log:
                 error_log.append(line)
-                
+
             func_def_re = re.compile(r"^\s*def\s+(\w+)\s*\(")
             for j in range(i, -1, -1):
                 m = func_def_re.match(lines[j])
                 if m:
                     function_name = m.group(1)
                     break
-                    
+
             if file_path and function_name:
                 break
-                
+
     if not file_path or not function_name:
         raise ValueError("Could not auto-detect buggy file or function from pytest output.")
-        
+
     return file_path, function_name, "\n".join(error_log)
 
 async def heal_once(payload: IssuePayload) -> None:
@@ -190,7 +189,7 @@ async def heal_once(payload: IssuePayload) -> None:
         raise ValueError(err_msg)
 
     print(f"Original source extracted successfully:\n---\n{func_source}\n---")
-    
+
     prompt = f"""
 Original function code:
 ```python
@@ -204,7 +203,7 @@ Error details:
 
 Please correct the function to make the execution/tests pass. Remember, return ONLY the corrected function definition.
 """
-    
+
     print("Sending prompt to Gemini via google.antigravity.Agent...")
     try:
         async with Agent(config) as agent:
@@ -239,20 +238,20 @@ async def auto_heal_code(run_target: str, mode: str = "script", max_attempts: in
     print("=" * 60)
     print(f"Starting Auto-Heal Loop for target: '{run_target}' in mode: '{mode}'")
     print("=" * 60)
-    
+
     for attempt in range(1, max_attempts + 1):
         print(f"\n[Auto-Heal Attempt {attempt}/{max_attempts}] Running target...")
         if mode == "pytest":
             exit_code, output = await run_pytest_suite(run_target)
         else:
             exit_code, output = await run_script_file(run_target)
-            
+
         if exit_code == 0:
             print("\n" + "*" * 60)
             print("SUCCESS: Target executed successfully with no errors!")
             print("*" * 60)
             return True
-            
+
         print("Execution failed. Parsing traceback to auto-detect target...")
         try:
             if mode == "pytest":
@@ -263,8 +262,8 @@ async def auto_heal_code(run_target: str, mode: str = "script", max_attempts: in
             print(f"Failed to auto-detect bug: {e}")
             print(f"Raw Target Output:\n{output}")
             raise ValueError(f"Could not auto-detect buggy code: {e}")
-            
-        print(f"Auto-Detected Bug Details:")
+
+        print("Auto-Detected Bug Details:")
         print(f"  File Path:     {file_path}")
         print(f"  Function Name: {function_name}")
         print(f"  Error Message: {error_msg}")
@@ -275,10 +274,10 @@ async def auto_heal_code(run_target: str, mode: str = "script", max_attempts: in
         )
         print(f"Triggering repair for function '{function_name}'...")
         await heal_once(payload)
-        
+
         print("Pausing for 8 seconds to stay under the API rate limit...")
         await asyncio.sleep(8)
-        
+
     print("\n" + "!" * 60)
     err_msg = f"Could not heal all errors after {max_attempts} attempts. Last output:\n{output}"
     print(err_msg)
