@@ -68,9 +68,7 @@ async def heal(payload: IssuePayload):
         "result": None,
         "error": None
     }
-    
     asyncio.create_task(run_healer_task(task_id, payload))
-    
     return {
         "task_id": task_id,
         "status": "PENDING",
@@ -112,9 +110,7 @@ async def heal_auto(mode: str = "script", file_path: str = None):
         "result": None,
         "error": None
     }
-    
     asyncio.create_task(run_auto_healer_task(task_id, file_path, mode))
-    
     return {
         "task_id": task_id,
         "status": "PENDING",
