@@ -1,240 +1,299 @@
 # AST-Healer
 
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](#)
-[![GitHub Stars](https://img.shields.io/github/stars/imohi/AST-Healer.svg?style=social)](#)
-[![GitHub Issues](https://img.shields.io/github/issues/imohi/AST-Healer.svg)](#)
+[![CI](https://github.com/imohitseth/AST-Healer/actions/workflows/ci.yml/badge.svg)](https://github.com/imohitseth/AST-Healer/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com/)
+[![Docker](https://img.shields.io/badge/docker-multi--stage-informational.svg)](https://docs.docker.com/build/building/multi-stage/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
-AST-Healer is an autonomous, self-healing developer tool and web service built using the `google.antigravity` SDK and Gemini. It executes target code files or test suites, captures runtime tracebacks, automatically parses exception stack frames to isolate buggy function blocks using Python's native Abstract Syntax Tree (`ast`), repairs the target code via Gemini 1.5 Flash, and verifies the healed code inside an isolated sandbox loop.
+**AST-Healer** is a self-healing Python developer tool that detects runtime exceptions, surgically extracts the failing function using Python's native Abstract Syntax Tree parser, repairs it via a Gemini LLM agent, and re-verifies the fix in a closed loop — without modifying any surrounding code.
 
----
-
-## 📽️ Demo & Screenshots
-<img width="382" height="100" alt="image" src="https://github.com/user-attachments/assets/2c70fd50-8cf2-4853-8642-581730b73df4" />
-
-> [!NOTE]
-> *Demo videos, UI dashboards, and full API execution screencasts are located under assets.*
-
-*   **API Interactive Documentation Dashboard:** [Link to Screenshot Placeholder]
-*   **Sequential Healing Loop Terminal Screencast:** [Link to Screencast Placeholder]
+It ships as both a CLI tool and a production-ready FastAPI web service with async background task execution.
 
 ---
 
-## 💡 Why This Project Exists
+## Demo
 
-Traditional LLM-driven code repair utilities often send entire source code files or complete directories into the model's context window. This approach suffers from three major flaws:
-1.  **High Token Cost:** Sending hundreds or thousands of lines of unrelated code wastes context tokens and increases API expenses.
-2.  **Model Distraction:** Long context inputs degrade LLM attention, increasing the rate of hallucinations and incorrect edits.
-3.  **Untargeted Modifications:** LLMs frequently edit unrelated parts of the file, introducing secondary bugs.
+> **CLI healing loop** — intentional bugs in `tests/mock_code.py` are auto-detected, repaired, and verified sequentially:
 
-AST-Healer resolves this by surgically extracting *only* the specific syntax node representing the failing function block (`FunctionDef`). By localizing both the input and the replacement to the AST level, it minimizes token usage, focuses LLM attention, and prevents unwanted edits to surrounding code.
+<img width="1418" height="1035" alt="image" src="https://github.com/user-attachments/assets/5be33af2-b34c-433b-9cf1-2f0d43e1fd84" />
+<img width="1418" height="966" alt="image" src="https://github.com/user-attachments/assets/e7a45722-18b9-4140-b264-b30260fcc96d" />
+<img width="825" height="575" alt="image" src="https://github.com/user-attachments/assets/8e43e24e-914b-49ec-bf5a-9685feb90e79" />
 
----
-
-## 🚀 Key Features
-
-*   **Surgical AST Isolation:** Traverses the Abstract Syntax Tree using Python's native `ast` parser to isolate only the target function definition and re-inserts corrected code blocks while preserving original indent levels.
-*   **Closed-Loop Automated Healing:** Runs test suites or scripts, detects crashes, parses tracebacks to isolate the buggy target, heals it via Gemini, and re-verifies in a loop until all exceptions are resolved.
-*   **Non-Blocking API Architecture:** Implements a FastAPI backend exposing a non-blocking `POST /heal/auto` endpoint that offloads healing tasks to an async background worker, returning a `202 Accepted` response immediately.
-*   **Python Traceback Stack-Frame Parser:** Scans standard Python tracebacks backwards to isolate the innermost failing function frame, ignoring top-level module execution scopes (`"<module>"`).
-*   **Production-Grade Dockerization:** Multi-stage Docker configuration utilizing a lightweight `python:3.11-slim` base image, running under a secure non-root user (`appuser`).
-*   **Rate-Limit Mitigation:** Implements an asynchronous rate-limit pacing delay to prevent hitting API quotas (Requests Per Minute) on free-tier API keys.
 
 ---
 
-## 🏗️ System Architecture
+## Why this exists
 
-AST-Healer uses a closed-loop control system design to automate bug resolution:
+Most LLM-based code repair tools send the entire source file into the model's context window. This has three concrete problems:
 
-```mermaid
-graph TD
-    A[Start: Run Target Script/Pytest] --> B{Execution Success?}
-    B -- Yes (Exit 0) --> C[Finish: Reports Success]
-    B -- No (Exit 1) --> D[Extract Traceback Output]
-    D --> E[Parse Stack Trace & Extract Target Function & File]
-    E --> F[Generate AST of Target File]
-    F --> G[Extract Buggy Function Segment using AST Node]
-    G --> H[Formulate LLM Prompt: Function Code + Error Log]
-    H --> I[Query Gemini via google.antigravity Agent]
-    I --> J[Clean Code Fences & Indent LLM Code Output]
-    J --> K[AST Replace: In-Place line substitution]
-    K --> L[Loop: Pause & Re-run Target]
-    L --> A
+1. **Token waste** — hundreds of lines of unrelated code consume context that could be used for the actual fix.
+2. **Model distraction** — longer context degrades LLM attention and increases hallucinations and off-target edits.
+3. **Untargeted rewrites** — LLMs frequently modify surrounding code that wasn't broken, introducing secondary bugs.
+
+AST-Healer resolves this by using Python's `ast` module to surgically extract only the `FunctionDef` node corresponding to the failing function — typically 10–20 lines — and submits only that block to the model. The corrected function is written back at the exact line range, with indentation automatically re-matched to the original.
+
+---
+
+## How it works
+
+```
+Run script / pytest
+       │
+       ▼
+   Exit 0? ──── Yes ──► Done ✓
+       │
+       No
+       │
+       ▼
+ Parse traceback (scan backwards, skip <module> frames)
+       │
+       ▼
+ Extract file path + failing function name
+       │
+       ▼
+ ast.parse() → walk tree → find FunctionDef node
+       │
+       ▼
+ ast.get_source_segment() → extract function source (~10–20 lines)
+       │
+       ▼
+ Send [function code + error log] to Gemini agent
+       │
+       ▼
+ Clean LLM response (strip markdown fences, re-indent)
+       │
+       ▼
+ Replace lines [lineno : end_lineno] in source file
+       │
+       ▼
+ Sleep 8s (API rate-limit pacing) → loop
 ```
 
-### Engineering Design Choices
-*   **AST-based Surgery vs. Regex Substitution:** Text-based search and replace is highly prone to failures (e.g. replacing duplicate helper function names elsewhere in the file). AST traversal guarantees that we target the exact scope of the function matching the failing identifier.
-*   **Subprocess Sandbox Isolation:** Test suites and target files are run in a distinct Python subprocess, isolating the primary FastAPI runtime from exceptions and memory leaks caused by the target code.
+### Key engineering decisions
+
+**AST traversal vs. regex substitution.** Text-based find-and-replace fails when the same function name appears in multiple scopes (inner classes, helpers, overloads). `ast.walk()` with `isinstance(node, ast.FunctionDef)` guarantees we target the exact node whose identifier appears in the traceback, regardless of file structure.
+
+**Subprocess sandbox isolation.** Target scripts run in a separate Python subprocess with a propagated `PYTHONPATH`. This prevents exceptions in user code from corrupting the FastAPI event loop, and prevents import state from leaking between healing iterations.
+
+**Async non-blocking API.** `POST /heal/auto` returns `202 Accepted` with a task ID immediately. The healing loop runs inside `asyncio.create_task()`. Clients poll `GET /tasks/{task_id}` for completion — the server stays responsive during long-running LLM calls.
+
+**Backward traceback parsing.** The traceback parser scans frames from the bottom up to find the innermost non-`<module>` frame. This correctly handles exceptions that propagate through multiple call sites — we target the origin function, not an intermediate caller.
+
+**Indentation-preserving replacement.** `target_node.col_offset` gives the original function's indentation level. The healed code is dedented then re-indented to match before writing, preventing `IndentationError` on the next run.
 
 ---
 
-## 🛠️ Tech Stack
+## Tech stack
 
-| Component | Technology | Description |
-| :--- | :--- | :--- |
-| **Backend Framework** | FastAPI | Asynchronous REST API utilizing asyncio workers |
-| **Server Runtime** | Uvicorn | ASGI server implementation |
-| **Pydantic Validation** | Pydantic v2 | Strict JSON schema parser enforcing model constraints |
-| **AI SDK** | google-antigravity | Google's agentic platform integration |
-| **Code Parser** | Python `ast` | Native Python AST parser and line segment extractor |
-| **Testing Sandbox** | Pytest | Programmatic test running and log generation |
-| **Deployment** | Docker | Multi-stage, non-root, lightweight deployment configuration |
-| **Dev Tools** | Python 3.11, Pip, dotenv | Environment isolation and package dependency management |
-
----
-
-## 💾 Installation
-
-### Prerequisites
-*   Python 3.11+
-*   Git
-
-### Setup
-1.  **Clone the Repository:**
-    ```bash
-    git clone https://github.com/imohi/AST-Healer.git
-    cd AST-Healer
-    ```
-
-2.  **Initialize Virtual Environment:**
-    ```bash
-    python -m venv .venv
-    # Windows (PowerShell)
-    .venv\Scripts\Activate.ps1
-    # macOS / Linux
-    source .venv/bin/activate
-    ```
-
-3.  **Install Dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-4.  **Configure Environment Variables:**
-    Create a `.env` file in the root directory:
-    ```env
-    GEMINI_API_KEY=your_gemini_api_key_here
-    ```
+| Component | Technology | Notes |
+|---|---|---|
+| Backend | FastAPI + Uvicorn | Async ASGI, non-blocking endpoints |
+| Input validation | Pydantic v2 | `extra="forbid"` blocks unexpected fields |
+| AI integration | google-antigravity (Gemini 1.5 Flash) | Agentic SDK with async context manager |
+| AST parsing | Python `ast` stdlib | Zero third-party dependencies for core parsing |
+| Deployment | Docker (multi-stage) | `python:3.11-slim`, non-root `appuser` UID 10001 |
+| Testing | Pytest | Used as healing target and verification runner |
+| CI | GitHub Actions | Lint + test on every push and PR |
 
 ---
 
-## 💻 Usage
+## Project structure
 
-### 1. Running the CLI Auto-Heal Demo
-To run the automated healing loop directly in your terminal:
+```
+AST-Healer/
+├── .github/
+│   └── workflows/
+│       └── ci.yml            # GitHub Actions: lint + test pipeline
+├── tests/
+│   ├── mock_code.py          # Target file with intentional runtime bugs
+│   ├── mock_run.py           # Standalone script execution target
+│   └── test_mock_code.py     # Pytest suite for the healing harness
+├── app.py                    # FastAPI routes and async background workers
+├── main.py                   # Core healing loop, traceback parser, subprocess runner
+├── parser.py                 # AST extraction and line-range replacement
+├── schemas.py                # Pydantic v2 request models
+├── Dockerfile                # Multi-stage Docker build
+├── docker-compose.yml        # Local dev setup
+├── requirements.txt
+├── .env.example              # Credential template
+├── CONTRIBUTING.md
+└── LICENSE
+```
+
+---
+
+## Setup
+
+**Prerequisites:** Python 3.11+, Git, a free [Gemini API key](https://aistudio.google.com/).
+
+```bash
+# 1. Clone
+git clone https://github.com/imohitseth/AST-Healer.git
+cd AST-Healer
+
+# 2. Create virtual environment
+python -m venv .venv
+source .venv/bin/activate        # macOS / Linux
+# .venv\Scripts\Activate.ps1    # Windows PowerShell
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Configure credentials (copy the template, then fill in your key)
+cp .env.example .env
+```
+
+---
+
+## Usage
+
+### CLI — auto-heal a script
+
 ```bash
 python main.py --mode script --target tests/mock_run.py --max-attempts 5
 ```
 
-### 2. Launching the Web Service
-To run the FastAPI server locally:
+### CLI — auto-heal a pytest suite
+
 ```bash
-.venv\Scripts\python.exe -m uvicorn app:app
-```
-*(Do not use the `--reload` flag during self-healing executions, as code changes will trigger Uvicorn reloads, interrupting background tasks).*
-
-Access the interactive API documentation at: **[http://localhost:8000/docs](http://localhost:8000/docs)**.
-
----
-
-## 📁 Project Structure
-
-```text
-AST-Healer/
-├── .env                  # API Credentials (ignored by git)
-├── Dockerfile            # Multi-stage Docker config
-├── app.py                # FastAPI endpoints and background worker tasks
-├── main.py               # Core self-healing loop and traceback parsing logic
-├── parser.py             # AST node extraction and replacement logic
-├── schemas.py            # Pydantic v2 validation models
-├── requirements.txt      # Project dependencies
-└── tests/
-    ├── mock_code.py      # Target codebase containing logic and runtime bugs
-    ├── mock_run.py       # Standalone execution target script
-    └── test_mock_code.py # Pytest validation test suite
+python main.py --mode pytest --target tests/test_mock_code.py --max-attempts 5
 ```
 
----
+### FastAPI web service
 
-## ⚡ Engineering Highlights
+```bash
+# Do NOT use --reload; Uvicorn restarts on file saves, killing active healing tasks
+python -m uvicorn app:app --host 0.0.0.0 --port 8000
+```
 
-### 🚀 Scalability
-*   **Non-Blocking Requests:** Ingestion endpoints (`POST /heal/auto`) immediately return a `202 Accepted` response with a task ID. Heavy LLM calling and subprocess execution are offloaded to background threads.
-*   **Thread-Safe Task Tracking:** An in-memory task database tracks background process states, facilitating polling without clogging primary event loops.
+Interactive API docs: `http://localhost:8000/docs`
 
-### ⏱️ Performance Optimizations
-*   **Context Token Savings:** By sending only the isolated function block ($~15$ lines) instead of the entire source code file ($~500$ lines), AST-Healer yields a **$>85\%$ reduction in context tokens**, saving API costs and execution latency.
-*   **Automatic Indentation Matching:** Custom dedent-and-reindent logic automatically matches the target function's indentation level prior to saving, avoiding extra compiler/syntax errors.
+### Docker Compose (recommended for local dev)
 
-### 🔒 Security Practices
-*   **Secure Docker Runs:** The container runs as an unprivileged, non-root user (`appuser`, UID `10001`) preventing container escape attacks.
-*   **Input Sanitization:** API input validation is enforced by Pydantic models with `extra="forbid"`, blocking unexpected parameters or payload injection.
+```bash
+docker compose up --build
+```
 
-### 🧪 Testing Strategy
-*   **Isolated Sandboxing:** Verification runs occur inside local subprocesses with isolated package paths, protecting the FastAPI process from state corruption.
-*   **Sequential Multibug Harness:** Tests verify the ability of the loop to resolve distinct errors (AttributeError, IndexError, and ZeroDivisionError) sequentially in a single run.
+### Docker (manual)
 
----
-
-## 🧠 Challenges & Learnings
-
-### Challenge 1: Uvicorn Auto-Reload Interrupting Worker Threads
-*   **Problem:** When Uvicorn was run with the `--reload` flag, the server immediately restarted the moment the Code Surgeon saved the fixed function back to the source file. This killed the active background task midway, leaving it in an incomplete state.
-*   **Solution:** Removed the `--reload` flag in the run documentation for self-healing environments. For development, we added a task execution wrapper that catches shutdown signals and gracefully handles state serialization.
-
-### Challenge 2: Module Resolution in Subprocesses
-*   **Problem:** Running standalone python scripts from the root directory frequently crashed with `ModuleNotFoundError` because sub-folders were not automatically appended to the Python import path.
-*   **Solution:** Updated the subprocess run configuration to copy `os.environ` and programmatically propagate `PYTHONPATH` to point to the current working directory dynamically.
-
-### Challenge 3: Top-level `<module>` Traceback Errors
-*   **Problem:** Initial iterations of the traceback parser extracted `<module>` as the failing function name when exceptions occurred at the script root level, causing AST parsing to fail.
-*   **Solution:** Enhanced the traceback scanner to traverse the call stack backwards, automatically skipping top-level module execution frames and isolating only valid function scopes.
+```bash
+docker build -t ast-healer .
+docker run -e GEMINI_API_KEY=your_key_here -p 8000:8000 ast-healer
+```
 
 ---
 
-## 🗺️ Roadmap (Future Improvements)
-
-*   [ ] **Docker-in-Docker (DinD) Sandboxing:** Run pytest suites inside isolated Docker containers to prevent untrusted generated code from executing directly on the host system.
-*   [ ] **Celery + Redis Task Queue:** Replace in-memory state dictionaries with a distributed task queue for robust horizontal scaling.
-*   [ ] **Tree-Sitter Multilingual Support:** Extend AST traversal support to Go, TypeScript, and Java using Tree-sitter bindings.
-
----
-
-## 📋 API Documentation
+## API reference
 
 ### `POST /heal/auto`
-Triggers the automatic test execution, traceback capture, and healing loop.
 
-*   **Query Parameters:**
-    *   `mode` (string, optional): `"script"` or `"pytest"`. Defaults to `"script"`.
-    *   `file_path` (string, optional): Path to the target script/test file.
-*   **Response (202 Accepted):**
-    ```json
-    {
-      "task_id": "ee39104126d1421e9f882f5ecd0519a1",
-      "status": "PENDING",
-      "message": "Auto-healing task (script mode) started in background for target: tests/mock_run.py"
-    }
-    ```
+Triggers the automated run → detect → repair → verify loop in the background.
 
-### `GET /tasks/{task_id}`
-Retrieves the status and result of a background healing task.
+**Query parameters:**
 
-*   **Response (200 OK):**
-    ```json
-    {
-      "task_id": "ee39104126d1421e9f882f5ecd0519a1",
-      "status": "SUCCESS",
-      "result": "Code executed, bug auto-detected, and code healed successfully in script mode.",
-      "error": null
-    }
-    ```
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `mode` | string | `"script"` | `"script"` or `"pytest"` |
+| `file_path` | string | `tests/mock_run.py` | Path to the target file |
+
+**Response `202 Accepted`:**
+```json
+{
+  "task_id": "ee39104126d1421e9f882f5ecd0519a1",
+  "status": "PENDING",
+  "message": "Auto-healing task (script mode) started in background for target: tests/mock_run.py"
+}
+```
 
 ---
 
-## 📈 Technical Achievements (Resume Impact)
+### `GET /tasks/{task_id}`
 
-*   **Minimized token overhead by 88%** on average compared to traditional full-file LLM generation prompts.
-*   **Reduced API latency by 92%** for client triggers by converting the healing orchestrator into an asynchronous, non-blocking background task.
-*   **Successfully healed 100% of tested runtime exceptions** (IndexError, ZeroDivisionError, AttributeError) sequentially in a single automated loop.
-*   Designed a multi-stage Docker configuration that **reduced the runner image size by 54%** compared to standard builder images.
+Poll for healing task status and result.
+
+**Response `200 OK`:**
+```json
+{
+  "task_id": "ee39104126d1421e9f882f5ecd0519a1",
+  "status": "SUCCESS",
+  "result": "Code executed, bug auto-detected, and code healed successfully in script mode.",
+  "error": null
+}
+```
+
+Possible `status` values: `PENDING` → `RUNNING` → `SUCCESS` / `FAILED`
+
+---
+
+### `POST /heal`
+
+Manual trigger — provide the file path, function name, and error log directly (skip auto-detection).
+
+**Request body:**
+```json
+{
+  "file_path": "tests/mock_code.py",
+  "function_name": "divide_numbers",
+  "error_log": "ZeroDivisionError: division by zero"
+}
+```
+
+---
+
+### `GET /`
+
+Health check. Returns `{"status": "healthy", "service": "AST-Healer API"}`.
+
+---
+
+## Challenges and solutions
+
+**Uvicorn auto-reload killing active workers.** When the healer writes a fixed function back to the source file, Uvicorn's `--reload` watcher detects the file change and immediately restarts the server — killing the background task mid-execution. Solution: documented the no-reload requirement for self-healing environments; for local development, add `# type: ignore` markers or use a separate dev server instance that watches only non-target files.
+
+**`PYTHONPATH` not propagated to subprocesses.** Running target scripts from the project root caused `ModuleNotFoundError` in subprocesses because relative imports failed. Solution: `os.environ.copy()` combined with explicit `PYTHONPATH=os.getcwd()` injection into each subprocess environment dictionary.
+
+**`<module>` frames surfacing as the "failing function".** When an exception originates at module scope (outside any function), the traceback parser initially extracted `<module>` as the function name, causing `ast.walk()` to find no matching `FunctionDef` node. Solution: scan the call stack in reverse, skipping any frame where `func == "<module>"`, and continue until a valid function-scoped identifier is found.
+
+---
+
+## Security
+
+- Docker container runs as `appuser` (UID 10001), not root, preventing privilege-escalation container escapes.
+- Pydantic `extra="forbid"` rejects any unexpected JSON fields at the API boundary.
+- API credentials are loaded from `.env` via `python-dotenv` and never hardcoded or logged.
+
+> **Warning:** AST-Healer reads and overwrites Python source files on the host filesystem using LLM-generated code. For production or multi-tenant use, run target execution inside an isolated sandbox (Docker-in-Docker, gVisor, or Firecracker microVMs) to contain untrusted generated code.
+
+---
+
+## Known limitations
+
+- Only handles `FunctionDef` nodes. Module-scope errors, class-method bugs where the traceback points to `<module>`, and deeply nested inner functions may not be correctly targeted.
+- Traceback parsing is Python-specific. Other languages require a separate parser implementation.
+- The in-memory `tasks_db` dict is not persistent and not safe for multi-process or multi-replica deployments. A Celery + Redis task queue is the correct production replacement.
+- Multi-function failures in a single run are resolved one at a time (one function per healing iteration), which may require several loop passes for files with multiple independent bugs.
+
+---
+
+## Roadmap
+
+- [ ] GitHub Actions CI with live build badge *(added)*
+- [ ] Docker Compose for local dev *(added)*
+- [ ] Docker-in-Docker sandboxing for untrusted code execution
+- [ ] Celery + Redis distributed task queue
+- [ ] Persistent task history (SQLite or Redis)
+- [ ] Tree-sitter extension for Go, TypeScript, and Java
+- [ ] Web UI for real-time healing loop progress visualization
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, coding standards, and how to submit a pull request.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
