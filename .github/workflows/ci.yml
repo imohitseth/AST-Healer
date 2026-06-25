@@ -12,11 +12,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
@@ -24,14 +22,14 @@ jobs:
       - name: Install ruff
         run: pip install ruff
 
-      - name: Run ruff
+      - name: Lint with ruff
+        # ruff.toml in repo root defines the rule set and per-file ignores
         run: ruff check . --config ruff.toml
 
   test:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    # Tests run independently — lint failures don't block test results
-    needs: []
+    # Runs independently of lint — a lint warning never hides test results
 
     strategy:
       fail-fast: false
@@ -39,27 +37,28 @@ jobs:
         python-version: ["3.11", "3.12"]
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
 
-      - name: Install dependencies
+      - name: Install dependencies (CI-safe, no google-antigravity)
+        # requirements-ci.txt excludes google-antigravity which is not on PyPI.
+        # The package is replaced by tests/mocks/google/antigravity/ stub.
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements-ci.txt
 
       - name: Run tests
         env:
-          # Tests that call the Gemini API are skipped when this is absent
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # Workspace root on PATH so project modules resolve correctly.
+          # The stub is injected by conftest.py at collection time.
           PYTHONPATH: ${{ github.workspace }}
         run: |
-          pytest tests/ -v --tb=short --ignore=tests/mock_code.py --ignore=tests/mock_run.py
+          pytest tests/test_mock_code.py -v --tb=short
 
   docker-build:
     name: Docker build check
@@ -67,11 +66,9 @@ jobs:
     needs: [test]
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
       - name: Build Docker image
         uses: docker/build-push-action@v5
