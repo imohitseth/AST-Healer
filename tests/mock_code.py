@@ -13,4 +13,11 @@ def divide_numbers(a: int, b: int) -> float:
     if b == 0:
         return 0.0
     return a / b
-#you can remove the if condition while testing so that it automatically detects it and modifies
+
+#make some errors in the function before running and the agent will auto detect it upon running the task and rectify it.
+'''
+Examples of the errors:
+i) a*b can be re-written as a.multiply(b)
+ii) lst[0] can be re-written as lst[1] (index out of bound error)
+iii) the if condition (if b==0) can be removed from the division function (zero division error)
+'''
