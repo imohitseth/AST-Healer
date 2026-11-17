@@ -10,8 +10,7 @@ def get_first_element(lst: list) -> any:
     return lst[0]
 
 def divide_numbers(a: int, b: int) -> float:
-    if b == 0:
-        return 0.0
+    
     return a / b
 
 #make some errors in the function before running and the agent will auto detect it upon running the task and rectify it.

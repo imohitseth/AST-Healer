@@ -23,3 +23,23 @@ class IssuePayload(BaseModel):
         min_length=1,
         description="The error message, exception name, or stderr output representing the failure."
     )
+
+
+class AgentPayload(BaseModel):
+    """Pydantic model representing incoming raw Python code payload for autonomous healing."""
+
+    model_config = {
+        "extra": "forbid",
+        "str_strip_whitespace": True,
+    }
+
+    file_content: str = Field(
+        ...,
+        min_length=1,
+        description="The raw Python source code content to execute and heal."
+    )
+    file_name: str = Field(
+        ...,
+        min_length=1,
+        description="The name of the uploaded Python file."
+    )

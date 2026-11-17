@@ -1,4 +1,6 @@
 import os
+import tempfile
+import uuid
 import sys
 import re
 import asyncio
@@ -7,7 +9,9 @@ from dotenv import load_dotenv
 
 from schemas import IssuePayload
 from parser import extract_function_source, replace_function_source
-from google.antigravity import Agent, LocalAgentConfig
+
+import vertexai
+from vertexai.generative_models import GenerativeModel
 
 load_dotenv()
 
@@ -162,22 +166,24 @@ def parse_pytest_failure(pytest_output: str) -> tuple[str, str, str]:
 
 async def heal_once(payload: IssuePayload) -> None:
     """Performs a single edit attempt on a specific function using Gemini and AST replacement."""
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        err_msg = "GEMINI_API_KEY not found in environment or .env file."
-        print(f"Error: {err_msg}")
-        raise ValueError(err_msg)
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
+    if not project_id:
+        raise ValueError("GOOGLE_CLOUD_PROJECT environment variable is missing.")
+        
+    vertexai.init(project=project_id, location=location)
+    system_instruction = (
+        "You are an expert Python debugger and Principal Staff Engineer. "
+        "Your task is to fix bugs inside a single Python function definition. "
+        "You will be given the original code of the function and the error log. "
+        "You must return ONLY the corrected function code, starting with 'def'. "
+        "Do not include any explanation, description, markdown formatting, or comment blocks. "
+        "Just return the raw Python code."
+    )
 
-    config = LocalAgentConfig(
-        system_instructions=(
-            "You are an expert Python debugger and Principal Staff Engineer. "
-            "Your task is to fix bugs inside a single Python function definition. "
-            "You will be given the original code of the function and the error log. "
-            "You must return ONLY the corrected function code, starting with 'def'. "
-            "Do not include any explanation, description, markdown formatting, or comment blocks. "
-            "Just return the raw Python code."
-        ),
-        api_key=api_key
+    model = GenerativeModel(
+        "gemini-3.8-flash",
+        system_instruction=[system_instruction]
     )
 
     print(f"Extracting source for function '{payload.function_name}'...")
@@ -204,13 +210,12 @@ Error details:
 Please correct the function to make the execution/tests pass. Remember, return ONLY the corrected function definition.
 """
 
-    print("Sending prompt to Gemini via google.antigravity.Agent...")
+    print("Sending prompt to Vertex AI...")
     try:
-        async with Agent(config) as agent:
-            response = await agent.chat(prompt)
-            raw_response = await response.text()
+        response = await model.generate_content_async(prompt)
+        raw_response = response.text
     except Exception as e:
-        err_msg = f"Agent Chat Error: {e}"
+        err_msg = f"Vertex AI Error: {e}"
         print(err_msg)
         raise RuntimeError(err_msg)
 
@@ -283,6 +288,62 @@ async def auto_heal_code(run_target: str, mode: str = "script", max_attempts: in
     print(err_msg)
     print("!" * 60)
     raise RuntimeError(err_msg)
+
+async def process_autonomous_healing(file_content: str) -> dict:
+    """
+    Saves raw content to a temp file, runs it, parses any traceback,
+    heals the file, and returns the updated content.
+    """
+    # 1. Generate a completely unique filename inside the system's safe /tmp directory
+    unique_id = uuid.uuid4().hex
+    temp_filename = os.path.join(tempfile.gettempdir(), f"temp_execution_{unique_id}.py")
+    
+    # 2. Save the uploaded content to disk
+    with open(temp_filename, "w", encoding="utf-8") as f:
+        f.write(file_content)
+        
+    try:
+        # 3. Run the file using your existing subprocess wrapper
+        exit_code, output = await run_script_file(temp_filename)
+        
+        if exit_code != 0:
+            print("Execution failed. Auto-detecting target from traceback...")
+            try:
+                # 4. Use your existing parser to isolate the bug
+                file_path, function_name, error_msg = parse_python_traceback(output)
+            except Exception as e:
+                os.remove(temp_filename)
+                return {"status": "error", "message": f"Could not auto-detect bug: {str(e)}"}
+            
+            # 5. Trigger the Vertex AI AST healer
+            payload = IssuePayload(
+                file_path=temp_filename,
+                function_name=function_name,
+                error_log=error_msg
+            )
+            await heal_once(payload)
+            
+            # 6. Read the newly healed file
+            with open(temp_filename, "r", encoding="utf-8") as f:
+                fixed_content = f.read()
+                
+            os.remove(temp_filename)
+            return {
+                "status": "healed", 
+                "fixed_code": fixed_content,
+                "function_name": function_name,
+                "error_msg": error_msg
+            }
+            
+        else:
+            # Code ran perfectly with no errors
+            os.remove(temp_filename)
+            return {"status": "no_error", "fixed_code": file_content}
+            
+    except Exception as e:
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)
+        return {"status": "error", "message": f"Autonomous healing failed: {str(e)}"}
 
 async def main():
     parser = argparse.ArgumentParser(description="AST-Healer: Automated Self-healing Loop")

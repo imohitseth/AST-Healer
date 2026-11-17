@@ -2,14 +2,24 @@ import os
 import uuid
 import asyncio
 from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 
-from schemas import IssuePayload
-from main import heal_code, auto_heal_code
+from schemas import IssuePayload, AgentPayload
+from main import heal_code, auto_heal_code, process_autonomous_healing
 
 app = FastAPI(
     title="AST-Healer Service",
     description="Production-grade API for self-healing buggy Python functions using google.antigravity SDK.",
     version="1.0.0"
+)
+
+# Enable CORS for React frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # In-memory storage for tracking task status
@@ -47,33 +57,21 @@ async def run_auto_healer_task(task_id: str, run_target: str, run_mode: str):
 
 @app.post(
     "/heal",
-    status_code=status.HTTP_202_ACCEPTED,
-    summary="Trigger the self-healing agent loop manually",
-    response_description="Returns the task ID immediately so you can poll for status."
+    summary="Autonomous Agent Healing Endpoint",
+    response_description="Returns the fully repaired code file as a string."
 )
-async def heal(payload: IssuePayload):
+async def heal(payload: AgentPayload):
     """
-    Triggers the self-healing loop manually with a pre-defined error payload.
-    This endpoint is non-blocking and processes the request in the background.
+    Receives raw Python code from the frontend, runs it, detects errors,
+    heals the AST, and returns the fixed code.
     """
-    if not os.path.exists(payload.file_path):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Target file not found at path: {payload.file_path}"
-        )
-
-    task_id = uuid.uuid4().hex
-    tasks_db[task_id] = {
-        "status": "PENDING",
-        "result": None,
-        "error": None
-    }
-    asyncio.create_task(run_healer_task(task_id, payload))
-    return {
-        "task_id": task_id,
-        "status": "PENDING",
-        "message": "Healing task started in background."
-    }
+    result = await process_autonomous_healing(payload.file_content)
+    
+    # --- FIX: Force a 500 error so React catches it properly ---
+    if result.get("status") == "error":
+        raise HTTPException(status_code=500, detail=result.get("message"))
+        
+    return result
 
 @app.post(
     "/heal/auto",

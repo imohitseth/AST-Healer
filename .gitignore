@@ -15,3 +15,10 @@ __pycache__/
 # Testing Cache
 .pytest_cache/
 .coverage
+
+ENV/
+env.bak/
+venv.bak/
+
+# Google Cloud / Security
+*.json
