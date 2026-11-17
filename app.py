@@ -66,11 +66,11 @@ async def heal(payload: AgentPayload):
     heals the AST, and returns the fixed code.
     """
     result = await process_autonomous_healing(payload.file_content)
-    
+
     # --- FIX: Force a 500 error so React catches it properly ---
     if result.get("status") == "error":
         raise HTTPException(status_code=500, detail=result.get("message"))
-        
+
     return result
 
 @app.post(

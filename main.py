@@ -170,7 +170,7 @@ async def heal_once(payload: IssuePayload) -> None:
     location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
     if not project_id:
         raise ValueError("GOOGLE_CLOUD_PROJECT environment variable is missing.")
-        
+
     vertexai.init(project=project_id, location=location)
     system_instruction = (
         "You are an expert Python debugger and Principal Staff Engineer. "
@@ -297,15 +297,15 @@ async def process_autonomous_healing(file_content: str) -> dict:
     # 1. Generate a completely unique filename inside the system's safe /tmp directory
     unique_id = uuid.uuid4().hex
     temp_filename = os.path.join(tempfile.gettempdir(), f"temp_execution_{unique_id}.py")
-    
+
     # 2. Save the uploaded content to disk
     with open(temp_filename, "w", encoding="utf-8") as f:
         f.write(file_content)
-        
+
     try:
         # 3. Run the file using your existing subprocess wrapper
         exit_code, output = await run_script_file(temp_filename)
-        
+
         if exit_code != 0:
             print("Execution failed. Auto-detecting target from traceback...")
             try:
@@ -314,7 +314,7 @@ async def process_autonomous_healing(file_content: str) -> dict:
             except Exception as e:
                 os.remove(temp_filename)
                 return {"status": "error", "message": f"Could not auto-detect bug: {str(e)}"}
-            
+
             # 5. Trigger the Vertex AI AST healer
             payload = IssuePayload(
                 file_path=temp_filename,
@@ -322,24 +322,24 @@ async def process_autonomous_healing(file_content: str) -> dict:
                 error_log=error_msg
             )
             await heal_once(payload)
-            
+
             # 6. Read the newly healed file
             with open(temp_filename, "r", encoding="utf-8") as f:
                 fixed_content = f.read()
-                
+
             os.remove(temp_filename)
             return {
-                "status": "healed", 
+                "status": "healed",
                 "fixed_code": fixed_content,
                 "function_name": function_name,
                 "error_msg": error_msg
             }
-            
+
         else:
             # Code ran perfectly with no errors
             os.remove(temp_filename)
             return {"status": "no_error", "fixed_code": file_content}
-            
+
     except Exception as e:
         if os.path.exists(temp_filename):
             os.remove(temp_filename)
