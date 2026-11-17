@@ -4,14 +4,31 @@ import asyncio
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
 from schemas import IssuePayload, AgentPayload
 from main import heal_code, auto_heal_code, process_autonomous_healing
+
+provider = TracerProvider()
+try:
+    exporter = OTLPSpanExporter()
+    provider.add_span_processor(BatchSpanProcessor(exporter))
+except Exception as e:
+    print(f"OTLP Exporter bypassed (running locally without telemetry collector): {e}")
+
+trace.set_tracer_provider(provider)
 
 app = FastAPI(
     title="AST-Healer Service",
     description="Production-grade API for self-healing buggy Python functions using google.antigravity SDK.",
     version="1.0.0"
 )
+
+FastAPIInstrumentor.instrument_app(app)
 
 # Enable CORS for React frontend
 app.add_middleware(

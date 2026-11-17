@@ -12,6 +12,8 @@ from parser import extract_function_source, replace_function_source
 
 import vertexai
 from vertexai.generative_models import GenerativeModel
+from opentelemetry import trace
+tracer = trace.get_tracer(__name__)
 
 load_dotenv()
 
@@ -165,12 +167,12 @@ def parse_pytest_failure(pytest_output: str) -> tuple[str, str, str]:
     return file_path, function_name, "\n".join(error_log)
 
 async def heal_once(payload: IssuePayload) -> None:
-    """Performs a single edit attempt on a specific function using Gemini and AST replacement."""
+    """Performs a single edit attempt on a specific function using Vertex AI and AST replacement."""
     project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
+    location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us")
     if not project_id:
         raise ValueError("GOOGLE_CLOUD_PROJECT environment variable is missing.")
-
+        
     vertexai.init(project=project_id, location=location)
     system_instruction = (
         "You are an expert Python debugger and Principal Staff Engineer. "
@@ -212,8 +214,14 @@ Please correct the function to make the execution/tests pass. Remember, return O
 
     print("Sending prompt to Vertex AI...")
     try:
-        response = await model.generate_content_async(prompt)
-        raw_response = response.text
+        with tracer.start_as_current_span("vertex_ai_generate_content") as span:
+            span.set_attribute("llm.model_name", "gemini-3.8-flash")
+            response = await model.generate_content_async(prompt)
+            raw_response = response.text
+            if hasattr(response, 'usage_metadata'):
+                span.set_attribute("llm.usage.prompt_tokens", response.usage_metadata.prompt_token_count)
+                span.set_attribute("llm.usage.completion_tokens", response.usage_metadata.candidates_token_count)
+                span.set_attribute("llm.usage.total_tokens", response.usage_metadata.total_token_count)
     except Exception as e:
         err_msg = f"Vertex AI Error: {e}"
         print(err_msg)
