@@ -20,4 +20,3 @@ i) a*b can be re-written as a.multiply(b)
 ii) lst[0] can be re-written as lst[1] (index out of bound error)
 iii) the if condition (if b==0) can be removed from the division function (zero division error)
 '''
-divide_numbers(10, 0)  # This will raise a ZeroDivisionError
