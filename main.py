@@ -172,7 +172,7 @@ async def heal_once(payload: IssuePayload) -> None:
     location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us")
     if not project_id:
         raise ValueError("GOOGLE_CLOUD_PROJECT environment variable is missing.")
-        
+
     vertexai.init(project=project_id, location=location)
     system_instruction = (
         "You are an expert Python debugger and Principal Staff Engineer. "
