@@ -17,4 +17,5 @@ def test_divide_numbers_normal():
     assert divide_numbers(10, 2) == 5.0
 
 def test_divide_numbers_zero():
-    assert divide_numbers(5, 0) == 0.0
+    with pytest.raises(ZeroDivisionError):
+        divide_numbers(5, 0)
